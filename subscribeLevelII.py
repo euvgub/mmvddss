@@ -29,7 +29,9 @@ def parseRPCSubscribeLevelII(message):
     response.ParseFromString(message)
     messageResult = Subscribe_Level_II_Quotes_pb2.Result()
     messageResult.ParseFromString(response.result)
-    print "Response ", messageResult
+    # print "Response ", messageResult
+    print 'Bids', messageResult.bids
+    print 'Offers', messageResult.offers
 
 
 def subscribeLevelTII():
