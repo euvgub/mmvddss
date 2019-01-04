@@ -17,10 +17,12 @@ from decimal import Decimal
 
 import zmq
 
-clear = lambda: os.system('cls')
+
+def clear(): return os.system('cls')
 
 # client.plain_username = 'U0132810'
 # client.plain_password = '04334'
+
 
 sys.path.insert(0, './api')
 
@@ -30,6 +32,8 @@ client.connect('tcp://127.0.0.1:5560')
 
 bidsStack = {}
 offersStack = {}
+
+amountOffersAndBids = 0
 
 
 def subscribeQuoteLevelII():
@@ -41,8 +45,6 @@ def subscribeQuoteLevelII():
     while should_continue:
         messageNumber = socket.recv()
         messageResult = socket.recv()
-        # print "Received message number", messageNumber
-        # print "Received message result", messageResult
         getQuoteLevelII()
 
 
@@ -62,9 +64,8 @@ def parseQuoteLevelII(message):
     response.ParseFromString(message)
     messageResult = getQuoteLevel2_pb2.Result()
     messageResult.ParseFromString(response.result)
-    # print 'Offers', messageResult.offers
-    # print 'Bids', messageResult.bids
     clear()
+    amountLevelII(messageResult.offers, messageResult.bids)
     updateOfferStack(messageResult.offers)
     updateBidStack(messageResult.bids)
 
@@ -74,6 +75,21 @@ def getQuoteLevelII():
     client.send(request)
     message = client.recv()
     parseQuoteLevelII(message)
+
+
+def amountLevelII(offers, bids):
+    """ Суммирует объем по всем заявкам """
+    global amountOffersAndBids
+
+    offerQuantity = 0
+    for offerIndex in range(len(offers)):
+        offerQuantity += int(offers[offerIndex].quantity)
+
+    bidQuantity = 0
+    for bidIndex in range(len(bids)):
+        bidQuantity += int(bids[bidIndex].quantity)
+
+    amountOffersAndBids = offerQuantity + bidQuantity
 
 
 def updateOfferStack(offers):
@@ -87,7 +103,7 @@ def updateOfferStack(offers):
     for offerPriceIndex in range(len(offersPrice)):
         price = offersPrice[offerPriceIndex]
         if price in offersStack:
-            offersStackCopy.update({ price: offersStack[price] })
+            offersStackCopy.update({price: offersStack[price]})
 
     offersStack = dict(offersStackCopy)
     for offerIndex in range(len(offers)):
@@ -98,16 +114,19 @@ def updateOfferStack(offers):
         if offerStack:
             change = 100 * (int(offer.quantity) -
                             offerStack.get('value')) / offerStack.get('value')
+            ratio = 100 * int(offer.quantity) / amountOffersAndBids
             inserter = {}
             inserterChild = {
                 'value': int(offer.quantity),
-                'change': change
+                'change': change,
+                'ratio': ratio
             }
             inserter[offer.price] = inserterChild
             offersStack.update(inserter)
         else:
+            ratio = 100 * int(offer.quantity) / amountOffersAndBids
             offersStack.update(
-                {offer.price: {'value': int(offer.quantity), 'change': 0}})
+                {offer.price: {'value': int(offer.quantity), 'change': 0, 'ratio': ratio}})
     print 'change offer ---'
     for key in sorted(offersStack, reverse=True):
         print "%s: %s" % (key, offersStack[key])
@@ -124,7 +143,7 @@ def updateBidStack(bids):
     for bidPriceIndex in range(len(bidsPrice)):
         price = bidsPrice[bidPriceIndex]
         if price in bidsStack:
-            bidsStackCopy.update({ price: bidsStack[price] })
+            bidsStackCopy.update({price: bidsStack[price]})
 
     bidsStack = dict(bidsStackCopy)
     for bidIndex in range(len(bids)):
@@ -135,16 +154,19 @@ def updateBidStack(bids):
         if bidStack:
             change = 100 * (int(bid.quantity) -
                             bidStack.get('value')) / bidStack.get('value')
+            ratio = 100 * int(bid.quantity) / amountOffersAndBids
             inserter = {}
             inserterChild = {
                 'value': int(bid.quantity),
-                'change': change
+                'change': change,
+                'ratio': ratio
             }
             inserter[bid.price] = inserterChild
             bidsStack.update(inserter)
         else:
+            ratio = 100 * int(bid.quantity) / amountOffersAndBids
             bidsStack.update(
-                {bid.price: {'value': int(bid.quantity), 'change': 0}})
+                {bid.price: {'value': int(bid.quantity), 'change': 0, 'ratio': ratio}})
     print 'change bid ---'
     for key in sorted(bidsStack, reverse=True):
         print "%s: %s" % (key, bidsStack[key])

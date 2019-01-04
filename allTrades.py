@@ -1,22 +1,45 @@
+# -*- coding: utf-8 -*-
+
 # 1. subscribe to 7
 # 2. createDataSource
 
+import os
 import sys
 import time
+import signal
 
 import zmq
 
+from decimal import Decimal
 from api.qlua import RPC_pb2
 from api.qlua import qlua_structures_pb2
 from api.qlua.datasource import CreateDataSource_pb2
+from api.qlua.datasource import Close_pb2
 from api.qlua.datasource import Size_pb2
 
 sys.path.insert(0, './api')
 
 ctx = zmq.Context.instance()
 
+client = ctx.socket(zmq.REQ)
+client.connect('tcp://127.0.0.1:5560')
+
+global uuid
+global lastPrice
+
+ordersShortStack = {}
+ordersLongStack = {}
+
+averageOrderValue = []
+
+def clear(): return os.system('cls')
+
+
+def current_milli_time(): return int(round(time.time() * 1000))
+
 
 def fetchDataSource():
+    """ Отправляет запрос на открытие источника тиковых котировок """
     message = CreateDataSource_pb2.Request()
     message.class_code = 'QJSIM'
     message.sec_code = 'SBER'
@@ -25,34 +48,62 @@ def fetchDataSource():
     request = RPC_pb2.Request()
     request.type = RPC_pb2.CREATE_DATA_SOURCE
     request.args = message.SerializeToString()
-    print "Request ", request
     return request.SerializeToString()
 
 
 def parseDataSource(message):
+    """ Парси запрос на открытие источника тиковых котировок """
     response = RPC_pb2.Response()
     response.ParseFromString(message)
     messageResult = CreateDataSource_pb2.Result()
     messageResult.ParseFromString(response.result)
-    print "Response ", messageResult
+    print 'isOpen ', messageResult.datasource_uuid
+    return messageResult.datasource_uuid
+
+
+def fetchDataSourceCloseSource():
+    """ Отправляет запрос на закрытие источника """
+    message = Close_pb2.Request()
+    message.datasource_uuid = uuid
+
+    request = RPC_pb2.Request()
+    request.type = RPC_pb2.DS_CLOSE
+    request.args = message.SerializeToString()
+    return request.SerializeToString()
+
+
+def parseDataSourceClose(message):
+    """ Парсит ответ на закрытие источника """
+    response = RPC_pb2.Response()
+    response.ParseFromString(message)
+    messageResult = Close_pb2.Result()
+    messageResult.ParseFromString(response.result)
+    print 'isClosed ', messageResult.result
+    return messageResult.result
 
 
 def getDataSource():
-    request = fetchDataSource()
+    """ Запрашивает источник """
+    global uuid
 
     client = ctx.socket(zmq.REQ)
     client.connect('tcp://127.0.0.1:5560')
-    client.send(request)
 
-    for request in range(1):
-        message = client.recv()
-        parseDataSource(message)
+    request = fetchDataSource()
+    client.send(request)
+    message = client.recv()
+    uuid = parseDataSource(message)
+
+    getDataSourceSize()
+
+    subscribeOnAllTrades()
 
 
 def parseAllTrades(message):
+    """ Парсит тело сообщения в формат пригодный для работы с данными """
     response = qlua_structures_pb2.AllTrade()
     response.ParseFromString(message)
-    print "Response result", response
+    return response
 
 
 def subscribeOnAllTrades():
@@ -64,41 +115,111 @@ def subscribeOnAllTrades():
     while should_continue:
         messageNumber = socket.recv()
         messageResult = socket.recv()
-        # print "Received message number", messageNumber
-        # print "Received message result", messageResult
-        parseAllTrades(messageResult)
+        # print 'message ', messageNumber
+        # print 'messageResult ', messageResult
+        trade = parseAllTrades(messageResult)
+
+        if trade.flags == 1:
+            shortTrade(trade)
+        else:
+            longTrade(trade)
 
 
 def fetchDataSourceSize():
     message = Size_pb2.Request()
-    message.datasource_uuid = 'dc35c7d7-ffff-4c64-cc4c-d7066017ad0e'
+    message.datasource_uuid = uuid
 
     request = RPC_pb2.Request()
     request.type = RPC_pb2.DS_SIZE
     request.args = message.SerializeToString()
-    print "Request ", request
     return request.SerializeToString()
 
 
 def parseDataSourceSize(message):
     response = RPC_pb2.Response()
     response.ParseFromString(message)
-    messageResult = Size_pb2.Result()
-    messageResult.ParseFromString(response.result)
-    print "Response ", messageResult
+    if not response.is_error:
+        messageResult = Size_pb2.Result()
+        messageResult.ParseFromString(response.result)
+        print "Size ", messageResult.value
 
 
 def getDataSourceSize():
     request = fetchDataSourceSize()
-
-    client = ctx.socket(zmq.REQ)
-    client.connect('tcp://127.0.0.1:5560')
     client.send(request)
-
-    for request in range(1):
-        message = client.recv()
-        parseDataSourceSize(message)
+    message = client.recv()
+    parseDataSourceSize(message)
 
 
-# getDataSource()
-getDataSourceSize()
+def shortTrade(trade):
+    """ Собирает принты на шорт, чтобы высчитывать ускорение """
+    global ordersShortStack
+
+    averageOrderValue.append(trade.qty)
+    print 'Average qty ', sum(map(lambda qty: qty, averageOrderValue)) / len(averageOrderValue)
+
+    ms = int(round(time.time() * 1000))
+    orderList = ordersShortStack.get(trade.price)
+    if orderList:
+        orderList.append({'time': ms, 'qty': trade.qty})
+
+        amountQty = sum(map(lambda order: order.get('qty'), orderList))
+        deltaTime = ms - orderList[0].get('time')
+        deltaTime = deltaTime if deltaTime != 0 else 0.1
+        intensiveQty = Decimal(amountQty / float(deltaTime))
+        intensiveQty = intensiveQty.quantize(Decimal("1.00"))
+        intensiveHit = Decimal(len(orderList) / float(deltaTime))
+        intensiveHit = intensiveHit.quantize(Decimal("1.00"))
+
+        averageSize = Decimal(amountQty / float(len(orderList)))
+        averageSize = averageSize.quantize(Decimal("1.00"))
+        # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
+        print 'Intense Short ', trade.price, ' - ', averageSize
+
+        ordersShortStack = {trade.price: orderList}
+    else:
+        ordersShortStack.update(
+            {trade.price: [{'time': ms, 'qty': trade.qty}]})
+
+
+def longTrade(trade):
+    """ Собирает принты на лонг, чтобы высчитывать ускорение """
+    global ordersLongStack
+
+    averageOrderValue.append(trade.qty)
+    print 'Average qty ', sum(map(lambda qty: qty, averageOrderValue)) / len(averageOrderValue)
+
+    ms = int(round(time.time() * 1000))
+    orderList = ordersLongStack.get(trade.price)
+    if orderList:
+        orderList.append({'time': ms, 'qty': trade.qty})
+
+        amountQty = sum(map(lambda order: order.get('qty'), orderList))
+        deltaTime = ms - orderList[0].get('time')
+        deltaTime = deltaTime if deltaTime != 0 else 0.1
+        intensiveQty = Decimal(amountQty / float(deltaTime))
+        intensiveQty = intensiveQty.quantize(Decimal("1.00"))
+        intensiveHit = Decimal(len(orderList) / float(deltaTime))
+        intensiveHit = intensiveHit.quantize(Decimal("1.00"))
+
+        averageSize = Decimal(amountQty / float(len(orderList)))
+        averageSize = averageSize.quantize(Decimal("1.00"))
+        # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
+        print 'Intense Long ', trade.price, ' - ', averageSize
+
+        ordersLongStack = {trade.price: orderList}
+    else:
+        ordersLongStack.update({trade.price: [{'time': ms, 'qty': trade.qty}]})
+
+
+def exitScript(signum, frame):
+    requestClose = fetchDataSourceCloseSource()
+    client.send(requestClose)
+    message = client.recv()
+    parseDataSourceClose(message)
+    sys.exit(1)
+
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, exitScript)
+    getDataSource()
