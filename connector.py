@@ -115,9 +115,13 @@ def updateOfferStack(offers):
             change = 100 * (int(offer.quantity) -
                             offerStack.get('value')) / offerStack.get('value')
             ratio = 100 * int(offer.quantity) / amountOffersAndBids
+            maxValue = int(offer.quantity) if int(offer.quantity) > offerStack.get(
+                'maxValue') else offerStack.get('maxValue')
             inserter = {}
             inserterChild = {
                 'value': int(offer.quantity),
+                'prevValue': int(offerStack.get('value')),
+                'maxValue': maxValue,
                 'change': change,
                 'ratio': ratio
             }
@@ -126,7 +130,7 @@ def updateOfferStack(offers):
         else:
             ratio = 100 * int(offer.quantity) / amountOffersAndBids
             offersStack.update(
-                {offer.price: {'value': int(offer.quantity), 'change': 0, 'ratio': ratio}})
+                {offer.price: {'value': int(offer.quantity), 'change': 0, 'ratio': ratio, 'maxValue': int(offer.quantity)}})
     print 'change offer ---'
     for key in sorted(offersStack, reverse=True):
         print "%s: %s" % (key, offersStack[key])
@@ -155,9 +159,13 @@ def updateBidStack(bids):
             change = 100 * (int(bid.quantity) -
                             bidStack.get('value')) / bidStack.get('value')
             ratio = 100 * int(bid.quantity) / amountOffersAndBids
+            maxValue = int(bid.quantity) if int(bid.quantity) > bidStack.get(
+                'maxValue') else bidStack.get('maxValue')
             inserter = {}
             inserterChild = {
                 'value': int(bid.quantity),
+                'prevValue': int(bidStack.get('value')),
+                'maxValue': maxValue,
                 'change': change,
                 'ratio': ratio
             }
@@ -166,7 +174,7 @@ def updateBidStack(bids):
         else:
             ratio = 100 * int(bid.quantity) / amountOffersAndBids
             bidsStack.update(
-                {bid.price: {'value': int(bid.quantity), 'change': 0, 'ratio': ratio}})
+                {bid.price: {'value': int(bid.quantity), 'change': 0, 'ratio': ratio, 'maxValue': int(bid.quantity)}})
     print 'change bid ---'
     for key in sorted(bidsStack, reverse=True):
         print "%s: %s" % (key, bidsStack[key])

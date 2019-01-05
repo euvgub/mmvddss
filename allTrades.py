@@ -30,6 +30,7 @@ global lastPrice
 ordersShortStack = {}
 ordersLongStack = {}
 
+orderMinuteVolume = {}
 averageOrderValue = []
 
 def clear(): return os.system('cls')
@@ -119,6 +120,7 @@ def subscribeOnAllTrades():
         # print 'messageResult ', messageResult
         trade = parseAllTrades(messageResult)
 
+        volume(trade)
         if trade.flags == 1:
             shortTrade(trade)
         else:
@@ -156,7 +158,8 @@ def shortTrade(trade):
     global ordersShortStack
 
     averageOrderValue.append(trade.qty)
-    print 'Average qty ', sum(map(lambda qty: qty, averageOrderValue)) / len(averageOrderValue)
+    averageQty = sum(map(lambda qty: qty, averageOrderValue)
+                     ) / len(averageOrderValue)
 
     ms = int(round(time.time() * 1000))
     orderList = ordersShortStack.get(trade.price)
@@ -174,7 +177,7 @@ def shortTrade(trade):
         averageSize = Decimal(amountQty / float(len(orderList)))
         averageSize = averageSize.quantize(Decimal("1.00"))
         # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Intense Short ', trade.price, ' - ', averageSize
+        print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, ' i:', intensiveQty, volumeByTrade(trade)
 
         ordersShortStack = {trade.price: orderList}
     else:
@@ -187,7 +190,8 @@ def longTrade(trade):
     global ordersLongStack
 
     averageOrderValue.append(trade.qty)
-    print 'Average qty ', sum(map(lambda qty: qty, averageOrderValue)) / len(averageOrderValue)
+    averageQty = sum(map(lambda qty: qty, averageOrderValue)
+                     ) / len(averageOrderValue)
 
     ms = int(round(time.time() * 1000))
     orderList = ordersLongStack.get(trade.price)
@@ -205,12 +209,28 @@ def longTrade(trade):
         averageSize = Decimal(amountQty / float(len(orderList)))
         averageSize = averageSize.quantize(Decimal("1.00"))
         # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Intense Long ', trade.price, ' - ', averageSize
+        print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, ' i:', intensiveQty, volumeByTrade(trade)
 
         ordersLongStack = {trade.price: orderList}
     else:
         ordersLongStack.update({trade.price: [{'time': ms, 'qty': trade.qty}]})
 
+def volume(trade):
+    """ Считает объем по минутам """
+    global orderMinuteVolume
+
+    minuteVolume = orderMinuteVolume.get(trade.datetime.min)
+    if minuteVolume:
+        orderMinuteVolume.update({ trade.datetime.min: minuteVolume + int(trade.qty) })
+    else:
+        orderMinuteVolume.update({ trade.datetime.min: trade.qty })
+
+    return orderMinuteVolume.get(trade.datetime.min)
+
+def volumeByTrade(trade):
+    """ отдает объем по минутам """
+    global orderMinuteVolume
+    return trade.datetime.sec,  orderMinuteVolume.get(trade.datetime.min)
 
 def exitScript(signum, frame):
     requestClose = fetchDataSourceCloseSource()

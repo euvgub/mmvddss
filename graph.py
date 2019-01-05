@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import os
 import sys
 import zmq
 import time
@@ -11,9 +12,12 @@ from api.qlua.datasource import Size_pb2
 from api.qlua.datasource import Close_pb2
 from api.qlua.datasource import H_pb2
 from api.qlua.datasource import L_pb2
+from api.qlua.datasource import V_pb2
 from api.qlua.datasource import SetEmptyCallback_pb2
 
 sys.path.insert(0, './api')
+
+def clear(): return os.system('cls')
 
 ctx = zmq.Context.instance()
 
@@ -127,6 +131,26 @@ def parseDataSourceLow(message):
     # print "Response ", messageResult.value
     return messageResult.value
 
+def fetchDataSourceVolume(uuid, index):
+    # Запрашивает объем свечи в потоке и от индекса свечи
+    message = V_pb2.Request()
+    message.datasource_uuid = uuid
+    message.candle_index = index
+
+    request = RPC_pb2.Request()
+    request.type = RPC_pb2.DS_V
+    request.args = message.SerializeToString()
+    return request.SerializeToString()
+
+
+def parseDataSourceVolume(message):
+    # Парсит объем свечи
+    response = RPC_pb2.Response()
+    response.ParseFromString(message)
+    messageResult = V_pb2.Result()
+    messageResult.ParseFromString(response.result)
+    # print "Response ", messageResult.value
+    return messageResult.value
 
 def setEmptyCallback(uuid):
     # Ставит пустой колбек
@@ -181,7 +205,7 @@ def maxHeightList(candleHeights):
             inserter[highValue] = counterByHigh + 1
             counterHighTimes.update(inserter)
 
-    print maxHeights
+    print 'maxHeights ', maxHeights[-5:]
 
 
 def minLowList(candleLows):
@@ -208,8 +232,11 @@ def minLowList(candleLows):
         if isLeftMore and isRightMore:
             minLows.append(mainLow)
 
-    print minLows
+    print 'minLows ', minLows[-5:]
 
+def averageVolume(candleVolumes):
+    averageQty = sum(map(lambda qty: qty, candleVolumes)) / len(candleVolumes)
+    print 'averageQty ', averageQty
 
 def base(client, uuid):
     requestDataSourceSize = fetchDataSourceSize(uuid)
@@ -234,17 +261,28 @@ def base(client, uuid):
         candleLow = parseDataSourceLow(responseCandleLow)
         candleLows.append(candleLow)
 
+    candleVolumes = []
+    for index in range(1, candleLength):
+        requestCandleVolume = fetchDataSourceVolume(uuid, index)
+        client.send(requestCandleVolume)
+        responseCandleVolume = client.recv()
+        candleVolume = parseDataSourceVolume(responseCandleVolume)
+        candleVolumes.append(int(candleVolume))
+
+    clear()
     maxHeightList(candleHeights)
     minLowList(candleLows)
+    averageVolume(candleVolumes)
 
     requestEmptyCallback = setEmptyCallback(uuid)
     client.send(requestEmptyCallback)
     responseEmptyCallback = client.recv()
     isAwaitCallback = parseEmptyCallback(responseEmptyCallback)
-    # if isAwaitCallback:
-    #     base(client, uuid)
-    # else:
-    #     return isAwaitCallback
+    if isAwaitCallback:
+        time.sleep(3)
+        base(client, uuid)
+    else:
+        return isAwaitCallback
 
 
 def getData():
