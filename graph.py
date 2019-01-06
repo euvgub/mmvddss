@@ -4,6 +4,7 @@ import os
 import sys
 import zmq
 import time
+from decimal import Decimal
 
 from api.qlua import RPC_pb2
 from api.qlua import qlua_structures_pb2
@@ -12,12 +13,17 @@ from api.qlua.datasource import Size_pb2
 from api.qlua.datasource import Close_pb2
 from api.qlua.datasource import H_pb2
 from api.qlua.datasource import L_pb2
+from api.qlua.datasource import O_pb2
+from api.qlua.datasource import C_pb2
 from api.qlua.datasource import V_pb2
+from api.qlua.datasource import T_pb2
 from api.qlua.datasource import SetEmptyCallback_pb2
 
 sys.path.insert(0, './api')
 
+
 def clear(): return os.system('cls')
+
 
 ctx = zmq.Context.instance()
 
@@ -60,7 +66,7 @@ def fetchDataSourceCloseSource(uuid):
 # Парсит ответ на закрытие источника
 
 
-def parseDataSourceClose(message):
+def parseDataSourceCloseSource(message):
     response = RPC_pb2.Response()
     response.ParseFromString(message)
     messageResult = Close_pb2.Result()
@@ -131,6 +137,65 @@ def parseDataSourceLow(message):
     # print "Response ", messageResult.value
     return messageResult.value
 
+
+def fetchDataSourceOpen(uuid, index):
+    """ Запрашивает открытие свечи в потоке и от индекса свечи """
+    message = O_pb2.Request()
+    message.datasource_uuid = uuid
+    message.candle_index = index
+
+    request = RPC_pb2.Request()
+    request.type = RPC_pb2.DS_O
+    request.args = message.SerializeToString()
+    return request.SerializeToString()
+
+
+def parseDataSourceOpen(message):
+    """ Запрашивает открытие свечи в потоке и от индекса свечи """
+    response = RPC_pb2.Response()
+    response.ParseFromString(message)
+    messageResult = O_pb2.Result()
+    messageResult.ParseFromString(response.result)
+    return messageResult.value
+
+def fetchDataSourceClose(uuid, index):
+    """ Запрашивает закрытие свечи в потоке и от индекса свечи """
+    message = C_pb2.Request()
+    message.datasource_uuid = uuid
+    message.candle_index = index
+
+    request = RPC_pb2.Request()
+    request.type = RPC_pb2.DS_C
+    request.args = message.SerializeToString()
+    return request.SerializeToString()
+
+def parseDataSourceClose(message):
+    """ Запрашивает закрытие свечи в потоке и от индекса свечи """
+    response = RPC_pb2.Response()
+    response.ParseFromString(message)
+    messageResult = C_pb2.Result()
+    messageResult.ParseFromString(response.result)
+    return messageResult.value
+
+def fetchDataSourceTime(uuid, index):
+    """ Запрашивает время свечи в потоке и от индекса свечи """
+    message = T_pb2.Request()
+    message.datasource_uuid = uuid
+    message.candle_index = index
+
+    request = RPC_pb2.Request()
+    request.type = RPC_pb2.DS_T
+    request.args = message.SerializeToString()
+    return request.SerializeToString()
+
+def parseDataSourceTime(message):
+    """ Запрашивает время свечи в потоке и от индекса свечи """
+    response = RPC_pb2.Response()
+    response.ParseFromString(message)
+    messageResult = T_pb2.Result()
+    messageResult.ParseFromString(response.result)
+    return messageResult
+
 def fetchDataSourceVolume(uuid, index):
     # Запрашивает объем свечи в потоке и от индекса свечи
     message = V_pb2.Request()
@@ -151,6 +216,7 @@ def parseDataSourceVolume(message):
     messageResult.ParseFromString(response.result)
     # print "Response ", messageResult.value
     return messageResult.value
+
 
 def setEmptyCallback(uuid):
     # Ставит пустой колбек
@@ -205,7 +271,7 @@ def maxHeightList(candleHeights):
             inserter[highValue] = counterByHigh + 1
             counterHighTimes.update(inserter)
 
-    print 'maxHeights ', maxHeights[-5:]
+    print 'maxHeights ', maxHeights[-3:]
 
 
 def minLowList(candleLows):
@@ -232,11 +298,75 @@ def minLowList(candleLows):
         if isLeftMore and isRightMore:
             minLows.append(mainLow)
 
-    print 'minLows ', minLows[-5:]
+    print 'minLows ', minLows[-3:]
+
 
 def averageVolume(candleVolumes):
     averageQty = sum(map(lambda qty: qty, candleVolumes)) / len(candleVolumes)
     print 'averageQty ', averageQty
+
+
+def averageCandleBody(candleHeights, candleLows, candleLength):
+    """ Высчитывает среднее тело 1 минутной свечи """
+    candlesHighLow = []
+    for index in range(0, candleLength - 1):
+        candlesHighLow.append(
+            {'high': float(candleHeights[index]), 'low': float(candleLows[index])})
+
+    candleBodies = []
+    for index in range(0, len(candlesHighLow)):
+        candleBodies.append(candlesHighLow[index].get(
+            'high') - candlesHighLow[index].get('low'))
+
+    averageCandleBody = sum(
+        map(lambda body: body, candleBodies)) / len(candleBodies)
+    averageCandleBody = Decimal(averageCandleBody)
+    averageCandleBody = averageCandleBody.quantize(Decimal("1.00"))
+
+    print 'averageCandleBody ', averageCandleBody
+
+def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleLength):
+    """ Находит импульсы и считает данные по ним """
+    candles = []
+    
+    directions = []
+    for index in range(len(candleCloses) - 1):
+        close = candleCloses[index]
+        nextClose = candleCloses[index + 1]
+
+        if close < nextClose:
+            direction = 'nextHigher'
+        elif close > nextClose:
+            direction = 'nextLower'
+        else:
+            direction = 'None'
+
+        directions.append(direction)
+
+    directionImpulses = []
+    for index in range(len(directions)):
+        direction = directions[index]
+        countInRow = 0
+        for subIndex in range(index+1, len(directions)):
+            nextDirection = directions[subIndex]
+            if nextDirection == direction:
+                countInRow += 1
+            else:
+                break
+        inserter = {
+            'direction': direction,
+            'count': countInRow
+        }
+        
+        directionImpulses.append(inserter)
+    print 'directionImpulses ', directionImpulses
+    # for index in range(1, candleLength - 1):
+    #     candles.append({
+    #         'high': float(candleHeights[index]),
+    #         'low': float(candleLows[index]),
+    #         'open': float(candleOpens[index]),
+    #         'close': float(candleCloses[index]),
+    #     })
 
 def base(client, uuid):
     requestDataSourceSize = fetchDataSourceSize(uuid)
@@ -246,7 +376,7 @@ def base(client, uuid):
     print 'candleLength ', candleLength
 
     candleHeights = []
-    for index in range(1, candleLength):
+    for index in range(0, candleLength):
         requestCandleHeight = fetchDataSourceHeight(uuid, index)
         client.send(requestCandleHeight)
         responseCandleHeight = client.recv()
@@ -254,25 +384,51 @@ def base(client, uuid):
         candleHeights.append(candleHeight)
 
     candleLows = []
-    for index in range(1, candleLength):
+    for index in range(0, candleLength):
         requestCandleLow = fetchDataSourceLow(uuid, index)
         client.send(requestCandleLow)
         responseCandleLow = client.recv()
         candleLow = parseDataSourceLow(responseCandleLow)
         candleLows.append(candleLow)
 
+    candleOpens = []
+    for index in range(0, candleLength):
+        requestCandleOpen = fetchDataSourceOpen(uuid, index)
+        client.send(requestCandleOpen)
+        responseCandleOpen = client.recv()
+        candleOpen = parseDataSourceOpen(responseCandleOpen)
+        candleOpens.append(candleOpen)
+
+    candleCloses = []
+    for index in range(0, candleLength):
+        requestCandleClose = fetchDataSourceClose(uuid, index)
+        client.send(requestCandleClose)
+        responseCandleClose = client.recv()
+        candleClose = parseDataSourceClose(responseCandleClose)
+        candleCloses.append(float(candleClose))
+
     candleVolumes = []
-    for index in range(1, candleLength):
+    for index in range(0, candleLength):
         requestCandleVolume = fetchDataSourceVolume(uuid, index)
         client.send(requestCandleVolume)
         responseCandleVolume = client.recv()
         candleVolume = parseDataSourceVolume(responseCandleVolume)
         candleVolumes.append(int(candleVolume))
 
+    candleTimes = []
+    for index in range(0, candleLength):
+        requestCandleTime = fetchDataSourceTime(uuid, index)
+        client.send(requestCandleTime)
+        responseCandleTime = client.recv()
+        candleTime = parseDataSourceTime(responseCandleTime)
+        candleTimes.append(candleTime)
+
     clear()
     maxHeightList(candleHeights)
     minLowList(candleLows)
     averageVolume(candleVolumes)
+    averageCandleBody(candleHeights, candleLows, candleLength)
+    detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleLength)
 
     requestEmptyCallback = setEmptyCallback(uuid)
     client.send(requestEmptyCallback)
@@ -299,7 +455,7 @@ def getData():
     requestClose = fetchDataSourceCloseSource(uuid)
     client.send(requestClose)
     responseClose = client.recv()
-    isClosed = parseDataSourceClose(responseClose)
+    isClosed = parseDataSourceCloseSource(responseClose)
     print 'isClosed ', isClosed
 
 

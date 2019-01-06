@@ -31,6 +31,9 @@ ordersShortStack = {}
 ordersLongStack = {}
 
 orderMinuteVolume = {}
+minuteVolumeLong = {}
+minuteVolumeShort = {}
+
 averageOrderValue = []
 
 def clear(): return os.system('cls')
@@ -122,8 +125,10 @@ def subscribeOnAllTrades():
 
         volume(trade)
         if trade.flags == 1:
+            setMinuteVolumeShort(trade)
             shortTrade(trade)
         else:
+            setMinuteVolumeLong(trade)
             longTrade(trade)
 
 
@@ -177,7 +182,7 @@ def shortTrade(trade):
         averageSize = Decimal(amountQty / float(len(orderList)))
         averageSize = averageSize.quantize(Decimal("1.00"))
         # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, ' i:', intensiveQty, volumeByTrade(trade)
+        print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, volumeByTrade(trade)
 
         ordersShortStack = {trade.price: orderList}
     else:
@@ -209,28 +214,53 @@ def longTrade(trade):
         averageSize = Decimal(amountQty / float(len(orderList)))
         averageSize = averageSize.quantize(Decimal("1.00"))
         # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, ' i:', intensiveQty, volumeByTrade(trade)
+        print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, volumeByTrade(trade)
 
         ordersLongStack = {trade.price: orderList}
     else:
         ordersLongStack.update({trade.price: [{'time': ms, 'qty': trade.qty}]})
 
+def setMinuteVolumeLong(trade):
+    """ Считает объем в лонг по минутам """
+    global minuteVolumeLong
+
+    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+    minuteVolume = minuteVolumeLong.get(timeKey)
+    if minuteVolume:
+        minuteVolumeLong.update({ timeKey: minuteVolume + int(trade.qty) })
+    else:
+        minuteVolumeLong.update({ timeKey: trade.qty })
+
+def setMinuteVolumeShort(trade):
+    """ Считает объем в шорт по минутам """
+    global minuteVolumeShort
+
+    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+    minuteVolume = minuteVolumeShort.get(timeKey)
+    if minuteVolume:
+        minuteVolumeShort.update({ timeKey: minuteVolume + int(trade.qty) })
+    else:
+        minuteVolumeShort.update({ timeKey: trade.qty })
+
 def volume(trade):
     """ Считает объем по минутам """
     global orderMinuteVolume
 
-    minuteVolume = orderMinuteVolume.get(trade.datetime.min)
+    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+    minuteVolume = orderMinuteVolume.get(timeKey)
     if minuteVolume:
-        orderMinuteVolume.update({ trade.datetime.min: minuteVolume + int(trade.qty) })
+        orderMinuteVolume.update({ timeKey: minuteVolume + int(trade.qty) })
     else:
-        orderMinuteVolume.update({ trade.datetime.min: trade.qty })
+        orderMinuteVolume.update({ timeKey: trade.qty })
 
-    return orderMinuteVolume.get(trade.datetime.min)
+    return orderMinuteVolume.get(timeKey)
 
 def volumeByTrade(trade):
     """ отдает объем по минутам """
     global orderMinuteVolume
-    return trade.datetime.sec,  orderMinuteVolume.get(trade.datetime.min)
+
+    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+    return trade.datetime.sec,  orderMinuteVolume.get(timeKey), minuteVolumeLong.get(timeKey), minuteVolumeShort.get(timeKey)
 
 def exitScript(signum, frame):
     requestClose = fetchDataSourceCloseSource()
