@@ -303,7 +303,7 @@ def minLowList(candleLows):
 
 def averageVolume(candleVolumes):
     averageQty = sum(map(lambda qty: qty, candleVolumes)) / len(candleVolumes)
-    print 'averageQty ', averageQty
+    print 'minute - averageQty ', averageQty
 
 
 def averageCandleBody(candleHeights, candleLows, candleLength):
@@ -323,21 +323,22 @@ def averageCandleBody(candleHeights, candleLows, candleLength):
     averageCandleBody = Decimal(averageCandleBody)
     averageCandleBody = averageCandleBody.quantize(Decimal("1.00"))
 
-    print 'averageCandleBody ', averageCandleBody
+    print 'minute - averageCandleBody ', averageCandleBody
 
-def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleLength):
+def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleVolumes, candleLength):
     """ Находит импульсы и считает данные по ним """
-    candles = []
-    
-    directions = []
-    for index in range(len(candleCloses) - 1):
-        close = candleCloses[index]
-        nextClose = candleCloses[index + 1]
+    isImpulse = False
 
-        if close < nextClose:
-            direction = 'nextHigher'
-        elif close > nextClose:
-            direction = 'nextLower'
+    directions = []
+    for index in range(candleLength):
+        candleOpen = candleOpens[index]
+        candleClose = candleCloses[index]
+        diff = float(candleClose) - float(candleOpen)
+
+        if diff > 0:
+            direction = 'up'
+        elif diff < 0:
+            direction = 'down'
         else:
             direction = 'None'
 
@@ -346,7 +347,7 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
     directionImpulses = []
     for index in range(len(directions)):
         direction = directions[index]
-        countInRow = 0
+        countInRow = 1
         for subIndex in range(index+1, len(directions)):
             nextDirection = directions[subIndex]
             if nextDirection == direction:
@@ -357,22 +358,114 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
             'direction': direction,
             'count': countInRow
         }
-        
         directionImpulses.append(inserter)
-    print 'directionImpulses ', directionImpulses
-    # for index in range(1, candleLength - 1):
-    #     candles.append({
-    #         'high': float(candleHeights[index]),
-    #         'low': float(candleLows[index]),
-    #         'open': float(candleOpens[index]),
-    #         'close': float(candleCloses[index]),
-    #     })
+
+    skipStep = 0
+    for index in range(len(directionImpulses)):
+        body = 0
+        amountVolume = 0
+
+        direction = directionImpulses[index]
+        count = direction.get('count')
+        directionType = direction.get('direction')
+
+        time = candleTimes[index]
+
+        if skipStep > 0:
+            skipStep -= 1
+            continue
+
+        if count >= 3:
+            impulseCandleLength = index + count
+            for candleIndex in range(index, impulseCandleLength):
+                candleOpen = candleOpens[candleIndex]
+                candleClose = candleCloses[candleIndex]
+                volume = candleVolumes[candleIndex]
+                candleBody = 0
+                if directionType == 'up':
+                    candleBody = float(candleClose) - float(candleOpen)
+                elif directionType == 'down':
+                    candleBody = float(candleOpen) - float(candleClose)
+                candleBody = Decimal(candleBody)
+                candleBody = candleBody.quantize(Decimal("1.00"))
+                body += candleBody
+                amountVolume += volume
+                directionImpulses[candleIndex].update({ 'isImpulse': True })
+
+            skipStep = count
+            inserter = {
+                'direction': directionType,
+                'count': count,
+                'impulseLength': body,
+                'impulseVolume': amountVolume,
+                'isImpulse' : True,
+                'time': str(time.hour) + ':' + str(time.min)
+            }
+            directionImpulses[index] = inserter
+
+    impulseLengths = []
+    for index in range(len(directionImpulses)):
+        directionImpulse = directionImpulses[index]
+        impulseLength = directionImpulse.get('impulseLength')
+        if impulseLength:
+            impulseLengths.append(impulseLength)
+
+    impulseVolumes = []
+    for index in range(len(directionImpulses)):
+        directionImpulse = directionImpulses[index]
+        impulseVolume = directionImpulse.get('impulseVolume')
+        if impulseVolume:
+            impulseVolumes.append(impulseVolume)
+    
+    averageImpulseLength = sum(map(lambda impulseLength: impulseLength, impulseLengths)) / len(impulseLengths)
+    averageImpulseLength = Decimal(averageImpulseLength)
+    averageImpulseLength = averageImpulseLength.quantize(Decimal("1.00"))
+    print 'averageImpulseLength ', averageImpulseLength
+
+    averageImpulseVolume = sum(map(lambda impulseVolume: impulseVolume, impulseVolumes)) / len(impulseVolumes)
+    averageImpulseVolume = Decimal(averageImpulseVolume)
+    averageImpulseVolume = averageImpulseVolume.quantize(Decimal("1.00"))
+    print 'averageImpulseVolume ', averageImpulseVolume
+
+    isImpulse = directionImpulses[len(directionImpulses)-1].get('isImpulse')
+    print 'isImpulse', isImpulse
+
+    if isImpulse:
+        impulseStartIndex = None
+        for index in reversed(range(len(directionImpulses))):
+            directionImpulse = directionImpulses[index]
+            time = directionImpulse.get('time')
+            if time:
+                impulseStartIndex = index
+                break
+
+        impulseBody = 0
+        impulseAmountVolume = 0
+        for index in range(impulseStartIndex, len(directionImpulses)):
+            candleOpen = candleOpens[candleIndex]
+            candleClose = candleCloses[candleIndex]
+            volume = candleVolumes[candleIndex]
+            candleBody = 0
+            if directionType == 'up':
+                candleBody = float(candleClose) - float(candleOpen)
+            elif directionType == 'down':
+                candleBody = float(candleOpen) - float(candleClose)
+            candleBody = Decimal(candleBody)
+            candleBody = candleBody.quantize(Decimal("1.00"))
+            impulseBody += candleBody
+            impulseAmountVolume += volume
+        
+        print 'impulseBody ', impulseBody
+        print 'impulseAmountVolume ', impulseAmountVolume
+
 
 def base(client, uuid):
     requestDataSourceSize = fetchDataSourceSize(uuid)
     client.send(requestDataSourceSize)
     responseDataSourceSize = client.recv()
     candleLength = parseDataSourceSize(responseDataSourceSize)
+    if candleLength:
+        candleLength += 1
     print 'candleLength ', candleLength
 
     candleHeights = []
@@ -428,7 +521,7 @@ def base(client, uuid):
     minLowList(candleLows)
     averageVolume(candleVolumes)
     averageCandleBody(candleHeights, candleLows, candleLength)
-    detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleLength)
+    detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleVolumes, candleLength)
 
     requestEmptyCallback = setEmptyCallback(uuid)
     client.send(requestEmptyCallback)
