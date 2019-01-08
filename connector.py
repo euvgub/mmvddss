@@ -65,6 +65,7 @@ def parseQuoteLevelII(message):
     messageResult = getQuoteLevel2_pb2.Result()
     messageResult.ParseFromString(response.result)
     clear()
+    calculateSpread(messageResult.offers, messageResult.bids)
     amountLevelII(messageResult.offers, messageResult.bids)
     updateOfferStack(messageResult.offers)
     updateBidStack(messageResult.bids)
@@ -76,6 +77,14 @@ def getQuoteLevelII():
     message = client.recv()
     parseQuoteLevelII(message)
 
+def calculateSpread(offers, bids):
+    """ Считает спред """
+    offerPrices = sorted(map(lambda offer: float(offer.price), offers))
+    bidPrices = sorted(map(lambda bid: float(bid.price), bids))
+
+    offerBestPrice = offerPrices[0]
+    bidBestPrice = bidPrices[len(bidPrices) - 1]
+    print 'spread ', offerBestPrice -bidBestPrice
 
 def amountLevelII(offers, bids):
     """ Суммирует объем по всем заявкам """

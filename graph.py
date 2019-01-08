@@ -330,7 +330,7 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
     isImpulse = False
 
     directions = []
-    for index in range(candleLength):
+    for index in range(candleLength-1):
         candleOpen = candleOpens[index]
         candleClose = candleCloses[index]
         diff = float(candleClose) - float(candleOpen)
@@ -375,7 +375,7 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
             skipStep -= 1
             continue
 
-        if count >= 3:
+        if count >= 2:
             impulseCandleLength = index + count
             for candleIndex in range(index, impulseCandleLength):
                 candleOpen = candleOpens[candleIndex]
@@ -442,6 +442,9 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
         impulseBody = 0
         impulseAmountVolume = 0
         for index in range(impulseStartIndex, len(directionImpulses)):
+            direction = directionImpulses[index]
+            directionType = direction.get('direction')
+
             candleOpen = candleOpens[candleIndex]
             candleClose = candleCloses[candleIndex]
             volume = candleVolumes[candleIndex]
@@ -450,6 +453,7 @@ def detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTi
                 candleBody = float(candleClose) - float(candleOpen)
             elif directionType == 'down':
                 candleBody = float(candleOpen) - float(candleClose)
+
             candleBody = Decimal(candleBody)
             candleBody = candleBody.quantize(Decimal("1.00"))
             impulseBody += candleBody
