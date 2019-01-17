@@ -3,344 +3,230 @@
 # 1. subscribe to 7
 # 2. createDataSource
 
-import os
-import sys
-import time
-import signal
-
-import zmq
+import os, sys, time, signal, zmq
 
 from decimal import Decimal
-from api.qlua import RPC_pb2
-from api.qlua import qlua_structures_pb2
-from api.qlua.datasource import CreateDataSource_pb2
-from api.qlua.datasource import Close_pb2
-from api.qlua.datasource import Size_pb2
-from api.qlua.datasource import SetEmptyCallback_pb2
+from request import Request
 
 sys.path.insert(0, './api')
 
-ctx = zmq.Context.instance()
+class AllTrades(Request):
 
-client = ctx.socket(zmq.REQ)
-client.connect('tcp://127.0.0.1:5560')
-
-global uuid
-global lastPrice
-
-ordersShortStack = {}
-ordersLongStack = {}
-
-orderMinuteVolume = {}
-minuteVolumeLong = {}
-minuteVolumeShort = {}
-
-halfMinuteVolumeLong = {}
-halfMinuteVolumeShort = {}
-
-averageOrderValue = []
-
-
-def clear(): return os.system('cls')
-
-
-def current_milli_time(): return int(round(time.time() * 1000))
-
-
-def fetchDataSource():
-    """ Отправляет запрос на открытие источника тиковых котировок """
-    message = CreateDataSource_pb2.Request()
-    message.class_code = 'QJSIM'
-    message.sec_code = 'SBER'
-    message.interval = CreateDataSource_pb2.INTERVAL_TICK
-
-    request = RPC_pb2.Request()
-    request.type = RPC_pb2.CREATE_DATA_SOURCE
-    request.args = message.SerializeToString()
-    return request.SerializeToString()
-
-
-def parseDataSource(message):
-    """ Парси запрос на открытие источника тиковых котировок """
-    response = RPC_pb2.Response()
-    response.ParseFromString(message)
-    messageResult = CreateDataSource_pb2.Result()
-    messageResult.ParseFromString(response.result)
-    print 'isOpen ', messageResult.datasource_uuid
-    return messageResult.datasource_uuid
-
-
-def fetchDataSourceCloseSource():
-    """ Отправляет запрос на закрытие источника """
-    message = Close_pb2.Request()
-    message.datasource_uuid = uuid
-
-    request = RPC_pb2.Request()
-    request.type = RPC_pb2.DS_CLOSE
-    request.args = message.SerializeToString()
-    return request.SerializeToString()
-
-
-def parseDataSourceClose(message):
-    """ Парсит ответ на закрытие источника """
-    response = RPC_pb2.Response()
-    response.ParseFromString(message)
-    messageResult = Close_pb2.Result()
-    messageResult.ParseFromString(response.result)
-    print 'isClosed ', messageResult.result
-    return messageResult.result
-
-
-def setEmptyCallback(uuid):
-    # Ставит пустой колбек
-    message = SetEmptyCallback_pb2.Request()
-    message.datasource_uuid = uuid
-
-    request = RPC_pb2.Request()
-    request.type = RPC_pb2.DS_SET_EMPTY_CALLBACK
-    request.args = message.SerializeToString()
-    return request.SerializeToString()
-
-
-def parseEmptyCallback(message):
-    # Парсит ответ на пустой колбек
-    response = RPC_pb2.Response()
-    response.ParseFromString(message)
-    messageResult = SetEmptyCallback_pb2.Result()
-    messageResult.ParseFromString(response.result)
-    return messageResult.result
-
-
-def getDataSource():
-    """ Запрашивает источник """
-    global uuid
+    ctx = zmq.Context.instance()
 
     client = ctx.socket(zmq.REQ)
     client.connect('tcp://127.0.0.1:5560')
 
-    request = fetchDataSource()
-    client.send(request)
-    message = client.recv()
-    uuid = parseDataSource(message)
+    __uuid = None
+    lastPrice = None
 
-    requestEmptyCallback = setEmptyCallback(uuid)
-    client.send(requestEmptyCallback)
-    responseEmptyCallback = client.recv()
-    isAwaitCallback = parseEmptyCallback(responseEmptyCallback)
-    print 'isAwaitCallback ', isAwaitCallback
+    ordersShortStack = {}
+    ordersLongStack = {}
 
-    getDataSourceSize()
-    subscribeOnAllTrades()
+    orderMinuteVolume = {}
+    minuteVolumeLong = {}
+    minuteVolumeShort = {}
+
+    halfMinuteVolumeLong = {}
+    halfMinuteVolumeShort = {}
+
+    averageOrderValue = []
+
+    def clear(self): 
+        return os.system('cls')
+
+    def current_milli_time(self): 
+        return int(round(time.time() * 1000))
+
+    def getDataSource(self, cb=None):
+        """ Запрашивает источник """
+        client = self.ctx.socket(zmq.REQ)
+        client.connect('tcp://127.0.0.1:5560')
+
+        request = self.fetchDataSourceTrade()
+        client.send(request)
+        message = client.recv()
+        self.__uuid = self.parseDataSourceTrade(message)
+
+        requestEmptyCallback = self.setEmptyCallbackTrade(self.__uuid)
+        client.send(requestEmptyCallback)
+        responseEmptyCallback = client.recv()
+        isAwaitCallback = self.parseEmptyCallbackTrade(responseEmptyCallback)
+        print 'isAwaitCallback ', isAwaitCallback
+
+        self.getDataSourceSize()
+        self.subscribeOnAllTrades(cb)
 
 
-def parseAllTrades(message):
-    """ Парсит тело сообщения в формат пригодный для работы с данными """
-    response = qlua_structures_pb2.AllTrade()
-    response.ParseFromString(message)
-    return response
+    def subscribeOnAllTrades(self, cb=None):
+        socket = self.ctx.socket(zmq.SUB)
+        socket.connect('tcp://127.0.0.1:5561')
+        socket.subscribe('7')
+
+        should_continue = True
+        while should_continue:
+            messageNumber = socket.recv()
+            messageResult = socket.recv()
+            # print 'message ', messageNumber
+            # print 'messageResult ', messageResult
+            trade = self.parseAllTrades(messageResult)
+
+            self.volume(trade)
+            if trade.flags == 1:
+                self.setMinuteVolumeShort(trade)
+                self.calculateMinuteSliceVolumeShort(trade)
+                self.shortTrade(trade)
+            else:
+                self.setMinuteVolumeLong(trade)
+                self.calculateMinuteSliceVolumeLong(trade)
+                self.longTrade(trade)
+
+            if cb:
+                cb(trade)
 
 
-def subscribeOnAllTrades():
-    socket = ctx.socket(zmq.SUB)
-    socket.connect('tcp://127.0.0.1:5561')
-    socket.subscribe('7')
+    def getDataSourceSize(self):
+        request = self.fetchDataSourceSizeTrade(self.__uuid)
+        self.client.send(request)
+        message = self.client.recv()
+        self.parseDataSourceSizeTrade(message)
 
-    should_continue = True
-    while should_continue:
-        messageNumber = socket.recv()
-        messageResult = socket.recv()
-        # print 'message ', messageNumber
-        # print 'messageResult ', messageResult
-        trade = parseAllTrades(messageResult)
 
-        volume(trade)
-        if trade.flags == 1:
-            setMinuteVolumeShort(trade)
-            calculateMinuteSliceVolumeShort(trade)
-            shortTrade(trade)
+    def shortTrade(self, trade):
+        """ Собирает принты на шорт, чтобы высчитывать ускорение """
+        self.averageOrderValue.append(trade.qty)
+        averageQty = sum(map(lambda qty: qty, self.averageOrderValue)
+                        ) / len(self.averageOrderValue)
+
+        ms = int(round(time.time() * 1000))
+        orderList = self.ordersShortStack.get(trade.price)
+        if orderList:
+            orderList.append({'time': ms, 'qty': trade.qty})
+
+            amountQty = sum(map(lambda order: order.get('qty'), orderList))
+            deltaTime = ms - orderList[0].get('time')
+            deltaTime = deltaTime if deltaTime != 0 else 0.1
+            intensiveQty = Decimal(amountQty / float(deltaTime))
+            intensiveQty = intensiveQty.quantize(Decimal("1.00"))
+            intensiveHit = Decimal(len(orderList) / float(deltaTime))
+            intensiveHit = intensiveHit.quantize(Decimal("1.00"))
+
+            averageSize = Decimal(amountQty / float(len(orderList)))
+            averageSize = averageSize.quantize(Decimal("1.00"))
+            # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
+            print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
+                trade)
+
+            self.ordersShortStack = {trade.price: orderList}
         else:
-            setMinuteVolumeLong(trade)
-            calculateMinuteSliceVolumeLong(trade)
-            longTrade(trade)
+            self.ordersShortStack.update(
+                {trade.price: [{'time': ms, 'qty': trade.qty}]})
 
 
-def fetchDataSourceSize():
-    message = Size_pb2.Request()
-    message.datasource_uuid = uuid
+    def longTrade(self, trade):
+        """ Собирает принты на лонг, чтобы высчитывать ускорение """
+        self.averageOrderValue.append(trade.qty)
+        averageQty = sum(map(lambda qty: qty, self.averageOrderValue)
+                        ) / len(self.averageOrderValue)
 
-    request = RPC_pb2.Request()
-    request.type = RPC_pb2.DS_SIZE
-    request.args = message.SerializeToString()
-    return request.SerializeToString()
+        ms = int(round(time.time() * 1000))
+        orderList = self.ordersLongStack.get(trade.price)
+        if orderList:
+            orderList.append({'time': ms, 'qty': trade.qty})
 
+            amountQty = sum(map(lambda order: order.get('qty'), orderList))
+            deltaTime = ms - orderList[0].get('time')
+            deltaTime = deltaTime if deltaTime != 0 else 0.1
+            intensiveQty = Decimal(amountQty / float(deltaTime))
+            intensiveQty = intensiveQty.quantize(Decimal("1.00"))
+            intensiveHit = Decimal(len(orderList) / float(deltaTime))
+            intensiveHit = intensiveHit.quantize(Decimal("1.00"))
 
-def parseDataSourceSize(message):
-    response = RPC_pb2.Response()
-    response.ParseFromString(message)
-    if not response.is_error:
-        messageResult = Size_pb2.Result()
-        messageResult.ParseFromString(response.result)
-        print "Size ", messageResult.value
+            averageSize = Decimal(amountQty / float(len(orderList)))
+            averageSize = averageSize.quantize(Decimal("1.00"))
+            # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
+            print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
+                trade)
 
-
-def getDataSourceSize():
-    request = fetchDataSourceSize()
-    client.send(request)
-    message = client.recv()
-    parseDataSourceSize(message)
-
-
-def shortTrade(trade):
-    """ Собирает принты на шорт, чтобы высчитывать ускорение """
-    global ordersShortStack
-
-    averageOrderValue.append(trade.qty)
-    averageQty = sum(map(lambda qty: qty, averageOrderValue)
-                     ) / len(averageOrderValue)
-
-    ms = int(round(time.time() * 1000))
-    orderList = ordersShortStack.get(trade.price)
-    if orderList:
-        orderList.append({'time': ms, 'qty': trade.qty})
-
-        amountQty = sum(map(lambda order: order.get('qty'), orderList))
-        deltaTime = ms - orderList[0].get('time')
-        deltaTime = deltaTime if deltaTime != 0 else 0.1
-        intensiveQty = Decimal(amountQty / float(deltaTime))
-        intensiveQty = intensiveQty.quantize(Decimal("1.00"))
-        intensiveHit = Decimal(len(orderList) / float(deltaTime))
-        intensiveHit = intensiveHit.quantize(Decimal("1.00"))
-
-        averageSize = Decimal(amountQty / float(len(orderList)))
-        averageSize = averageSize.quantize(Decimal("1.00"))
-        # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, volumeByTrade(
-            trade)
-
-        ordersShortStack = {trade.price: orderList}
-    else:
-        ordersShortStack.update(
-            {trade.price: [{'time': ms, 'qty': trade.qty}]})
+            self.ordersLongStack = {trade.price: orderList}
+        else:
+            self.ordersLongStack.update({trade.price: [{'time': ms, 'qty': trade.qty}]})
 
 
-def longTrade(trade):
-    """ Собирает принты на лонг, чтобы высчитывать ускорение """
-    global ordersLongStack
-
-    averageOrderValue.append(trade.qty)
-    averageQty = sum(map(lambda qty: qty, averageOrderValue)
-                     ) / len(averageOrderValue)
-
-    ms = int(round(time.time() * 1000))
-    orderList = ordersLongStack.get(trade.price)
-    if orderList:
-        orderList.append({'time': ms, 'qty': trade.qty})
-
-        amountQty = sum(map(lambda order: order.get('qty'), orderList))
-        deltaTime = ms - orderList[0].get('time')
-        deltaTime = deltaTime if deltaTime != 0 else 0.1
-        intensiveQty = Decimal(amountQty / float(deltaTime))
-        intensiveQty = intensiveQty.quantize(Decimal("1.00"))
-        intensiveHit = Decimal(len(orderList) / float(deltaTime))
-        intensiveHit = intensiveHit.quantize(Decimal("1.00"))
-
-        averageSize = Decimal(amountQty / float(len(orderList)))
-        averageSize = averageSize.quantize(Decimal("1.00"))
-        # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-        print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, volumeByTrade(
-            trade)
-
-        ordersLongStack = {trade.price: orderList}
-    else:
-        ordersLongStack.update({trade.price: [{'time': ms, 'qty': trade.qty}]})
+    def setMinuteVolumeLong(self, trade):
+        """ Считает объем в лонг по минутам """
+        timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+        minuteVolume = self.minuteVolumeLong.get(timeKey)
+        if minuteVolume:
+            self.minuteVolumeLong.update({timeKey: minuteVolume + int(trade.qty)})
+        else:
+            self.minuteVolumeLong.update({timeKey: trade.qty})
 
 
-def setMinuteVolumeLong(trade):
-    """ Считает объем в лонг по минутам """
-    global minuteVolumeLong
-
-    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
-    minuteVolume = minuteVolumeLong.get(timeKey)
-    if minuteVolume:
-        minuteVolumeLong.update({timeKey: minuteVolume + int(trade.qty)})
-    else:
-        minuteVolumeLong.update({timeKey: trade.qty})
-
-
-def calculateMinuteSliceVolumeLong(trade):
-    """ Считает объем в лонг по 30 секундам """
-    global halfMinuteVolumeLong
-
-    half = '00' if trade.datetime.sec < 30 else '30'
-    timeKey = str(trade.datetime.hour) + ':' + \
-        str(trade.datetime.min) + ':' + half
-    minuteVolume = halfMinuteVolumeLong.get(timeKey)
-    if minuteVolume:
-        halfMinuteVolumeLong.update({timeKey: minuteVolume + int(trade.qty)})
-    else:
-        halfMinuteVolumeLong.update({timeKey: trade.qty})
+    def calculateMinuteSliceVolumeLong(self, trade):
+        """ Считает объем в лонг по 30 секундам """
+        half = '00' if trade.datetime.sec < 30 else '30'
+        timeKey = str(trade.datetime.hour) + ':' + \
+            str(trade.datetime.min) + ':' + half
+        minuteVolume = self.halfMinuteVolumeLong.get(timeKey)
+        if minuteVolume:
+            self.halfMinuteVolumeLong.update({timeKey: minuteVolume + int(trade.qty)})
+        else:
+            self.halfMinuteVolumeLong.update({timeKey: trade.qty})
 
 
-def calculateMinuteSliceVolumeShort(trade):
-    """ Считает объем в шорт по 30 секундам """
-    global halfMinuteVolumeShort
-
-    half = '00' if trade.datetime.sec < 30 else '30'
-    timeKey = str(trade.datetime.hour) + ':' + \
-        str(trade.datetime.min) + ':' + half
-    minuteVolume = halfMinuteVolumeShort.get(timeKey)
-    if minuteVolume:
-        halfMinuteVolumeShort.update({timeKey: minuteVolume + int(trade.qty)})
-    else:
-        halfMinuteVolumeShort.update({timeKey: trade.qty})
+    def calculateMinuteSliceVolumeShort(self, trade):
+        """ Считает объем в шорт по 30 секундам """
+        half = '00' if trade.datetime.sec < 30 else '30'
+        timeKey = str(trade.datetime.hour) + ':' + \
+            str(trade.datetime.min) + ':' + half
+        minuteVolume = self.halfMinuteVolumeShort.get(timeKey)
+        if minuteVolume:
+            self.halfMinuteVolumeShort.update({timeKey: minuteVolume + int(trade.qty)})
+        else:
+            self.halfMinuteVolumeShort.update({timeKey: trade.qty})
 
 
-def setMinuteVolumeShort(trade):
-    """ Считает объем в шорт по минутам """
-    global minuteVolumeShort
-
-    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
-    minuteVolume = minuteVolumeShort.get(timeKey)
-    if minuteVolume:
-        minuteVolumeShort.update({timeKey: minuteVolume + int(trade.qty)})
-    else:
-        minuteVolumeShort.update({timeKey: trade.qty})
+    def setMinuteVolumeShort(self, trade):
+        """ Считает объем в шорт по минутам """
+        timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+        minuteVolume = self.minuteVolumeShort.get(timeKey)
+        if minuteVolume:
+            self.minuteVolumeShort.update({timeKey: minuteVolume + int(trade.qty)})
+        else:
+            self.minuteVolumeShort.update({timeKey: trade.qty})
 
 
-def volume(trade):
-    """ Считает объем по минутам """
-    global orderMinuteVolume
+    def volume(self, trade):
+        """ Считает объем по минутам """
+        timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+        minuteVolume = self.orderMinuteVolume.get(timeKey)
+        if minuteVolume:
+            self.orderMinuteVolume.update({timeKey: minuteVolume + int(trade.qty)})
+        else:
+            self.orderMinuteVolume.update({timeKey: trade.qty})
 
-    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
-    minuteVolume = orderMinuteVolume.get(timeKey)
-    if minuteVolume:
-        orderMinuteVolume.update({timeKey: minuteVolume + int(trade.qty)})
-    else:
-        orderMinuteVolume.update({timeKey: trade.qty})
-
-    return orderMinuteVolume.get(timeKey)
+        return self.orderMinuteVolume.get(timeKey)
 
 
-def volumeByTrade(trade):
-    """ отдает объем по минутам """
-    global orderMinuteVolume
+    def volumeByTrade(self, trade):
+        """ отдает объем по минутам """
+        half = '00' if trade.datetime.sec < 30 else '30'
+        halfTimeKey = str(trade.datetime.hour) + ':' + \
+            str(trade.datetime.min) + ':' + half
 
-    half = '00' if trade.datetime.sec < 30 else '30'
-    halfTimeKey = str(trade.datetime.hour) + ':' + \
-        str(trade.datetime.min) + ':' + half
-
-    timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
-    return trade.datetime.sec,  orderMinuteVolume.get(timeKey), minuteVolumeLong.get(timeKey), minuteVolumeShort.get(timeKey), halfMinuteVolumeLong.get(halfTimeKey), halfMinuteVolumeShort.get(halfTimeKey)
+        timeKey = str(trade.datetime.hour) + ':' + str(trade.datetime.min)
+        return trade.datetime.sec,  self.orderMinuteVolume.get(timeKey), self.minuteVolumeLong.get(timeKey), self.minuteVolumeShort.get(timeKey), self.halfMinuteVolumeLong.get(halfTimeKey), self.halfMinuteVolumeShort.get(halfTimeKey)
 
 
-def exitScript(signum, frame):
-    requestClose = fetchDataSourceCloseSource()
-    client.send(requestClose)
-    message = client.recv()
-    parseDataSourceClose(message)
-    sys.exit(1)
+    def exitScript(self, signum, frame):
+        requestClose = self.fetchDataSourceCloseSourceTrade(self.__uuid)
+        self.client.send(requestClose)
+        message = self.client.recv()
+        self.parseDataSourceCloseTrade(message)
+        sys.exit(1)
 
 
 if __name__ == '__main__':
-    signal.signal(signal.SIGINT, exitScript)
-    getDataSource()
+    signal.signal(signal.SIGINT, AllTrades.exitScript)
+    AllTrades().getDataSource()
