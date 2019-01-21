@@ -52,7 +52,7 @@ class AllTrades(Request):
         client.send(requestEmptyCallback)
         responseEmptyCallback = client.recv()
         isAwaitCallback = self.parseEmptyCallbackTrade(responseEmptyCallback)
-        print 'isAwaitCallback ', isAwaitCallback
+        # print 'isAwaitCallback ', isAwaitCallback
 
         self.getDataSourceSize()
         self.subscribeOnAllTrades(cb)
@@ -114,8 +114,8 @@ class AllTrades(Request):
             averageSize = Decimal(amountQty / float(len(orderList)))
             averageSize = averageSize.quantize(Decimal("1.00"))
             # print 'Intense Short ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-            print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
-                trade)
+            # print 'Sh ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
+                # trade)
 
             self.ordersShortStack = {trade.price: orderList}
         else:
@@ -145,8 +145,8 @@ class AllTrades(Request):
             averageSize = Decimal(amountQty / float(len(orderList)))
             averageSize = averageSize.quantize(Decimal("1.00"))
             # print 'Intense Long ', trade.price, ' - ', intensiveQty, ' - ', intensiveHit
-            print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
-                trade)
+            # print 'Lo ', trade.price, ' a:', amountQty, ' as:', averageSize, self.volumeByTrade(
+                # trade)
 
             self.ordersLongStack = {trade.price: orderList}
         else:

@@ -14,8 +14,8 @@ from decimal import Decimal
 from request import Request
 from allTrades import AllTrades
 
-# client.plain_username = 'U0132810'
-# client.plain_password = '04334'
+# client.plain_username = 'U0134277'
+# client.plain_password = '02318'
 
 
 class Connector(Request, AllTrades):
@@ -52,7 +52,9 @@ class Connector(Request, AllTrades):
         if trade.flags == 1:
             self.updateBidSide(trade)
         else:
-            self.updateOfferSide(trade)
+           self.updateOfferSide(trade)
+
+        self.getQuoteLevelII()
 
     def subscribeQuoteLevelIIWithAllTrades(self):
         try:
@@ -60,7 +62,7 @@ class Connector(Request, AllTrades):
                                      args=(self.allTradesCallback,))
             TradeDataSource.daemon = True
             TradeDataSource.start()
-            self.subscribeQuoteLevelII()
+            # self.subscribeQuoteLevelII()
             while True:
                 time.sleep(100)
         except (KeyboardInterrupt, SystemExit):
@@ -133,12 +135,13 @@ class Connector(Request, AllTrades):
                     'tradesQty': int(offerStack.get('tradesQty'))
                 }
                 inserter[offer.price] = inserterChild
-                self.offersStack.update(inserter)
+                offersStack.update(inserter)
             else:
                 ratio = 100 * int(offer.quantity) / self.amountOffersAndBids
-                self.offersStack.update(
+                offersStack.update(
                     {offer.price: {'value': int(offer.quantity), 'change': 0, 'ratio': ratio, 'maxValue': int(offer.quantity), 'tradesQty': 0}})
-        self.offersStackLevelII = dict(offersStack)
+        self.offersStackLevelII = offersStack.copy()
+        self.offersStack = offersStack.copy()
         print 'change offer ---'
         for key in sorted(offersStack, reverse=True):
             print "%s: %s" % (key, offersStack[key])
@@ -177,19 +180,20 @@ class Connector(Request, AllTrades):
                     'tradesQty': int(bidStack.get('tradesQty'))
                 }
                 inserter[bid.price] = inserterChild
-                self.bidsStack.update(inserter)
+                bidsStack.update(inserter)
             else:
                 ratio = 100 * int(bid.quantity) / self.amountOffersAndBids
-                self.bidsStack.update(
+                bidsStack.update(
                     {bid.price: {'value': int(bid.quantity), 'change': 0, 'ratio': ratio, 'maxValue': int(bid.quantity), 'tradesQty': 0}})
-        self.bidsStackLevelII = dict(bidsStack)
+        self.bidsStackLevelII = bidsStack.copy()
+        self.bidsStack = bidsStack.copy()
         print 'change bid ---'
         for key in sorted(bidsStack, reverse=True):
             print "%s: %s" % (key, bidsStack[key])
 
     def updateOfferSide(self, trade):
         """ Обновляет значение прошедшего объема в уровень """
-        price = trade.price
+        price = str(Decimal(trade.price).quantize(Decimal("1.00")))
         offer = self.offersStack.get(price)
         if offer:
             offer['tradesQty'] = offer.get('tradesQty', 0) + int(trade.qty)
@@ -197,7 +201,7 @@ class Connector(Request, AllTrades):
 
     def updateBidSide(self, trade):
         """ Обновляет значение прошедшего объема в уровень """
-        price = trade.price
+        price = str(Decimal(trade.price).quantize(Decimal("1.00")))
         bid = self.bidsStack.get(price)
         if bid:
             bid['tradesQty'] = bid.get('tradesQty', 0) + int(trade.qty)

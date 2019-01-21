@@ -7,6 +7,7 @@ import time
 from decimal import Decimal
 from request import Request
 
+
 class Graph(Request):
     ctx = zmq.Context.instance()
 
@@ -23,7 +24,7 @@ class Graph(Request):
 
     def clear(self): return os.system('cls')
 
-    def maxHeightList(self, candleHeights):
+    def maxHeightList(self, candleHeights, candleCloses):
         # Находит максимумы и наибольшее количество попаданий на одинаковый максимум
         maxHeights = []
         candleLength = len(candleHeights)
@@ -57,10 +58,11 @@ class Graph(Request):
                 counterHighTimes.update(inserter)
 
         self.maxHeightsGraph = maxHeights
-        print 'maxHeights ', maxHeights[-3:]
+        lastPrice = float(candleCloses[len(candleCloses)-1])
+        nearestHigh = list(filter(lambda x: float(x) >= lastPrice, maxHeights))
+        print 'nearestHigh ', nearestHigh[len(nearestHigh)-1]
 
-
-    def minLowList(self, candleLows):
+    def minLowList(self, candleLows, candleCloses):
         # Находит минимумы
         minLows = []
         candleLength = len(candleLows)
@@ -85,14 +87,15 @@ class Graph(Request):
                 minLows.append(mainLow)
 
         self.minLowsGraph = minLows
-        print 'minLows ', minLows[-3:]
-
+        lastPrice = float(candleCloses[len(candleCloses)-1])
+        nearestLow = list(filter(lambda x: float(x) <= lastPrice, minLows))
+        print 'nearestLow ', nearestLow[len(nearestLow)-1]
 
     def averageVolume(self, candleVolumes):
-        averageQty = sum(map(lambda qty: qty, candleVolumes)) / len(candleVolumes)
+        averageQty = sum(map(lambda qty: qty, candleVolumes)
+                         ) / len(candleVolumes)
         self.averageQtyGraph = averageQty
         print 'minute - averageQty ', averageQty
-
 
     def averageCandleBody(self, candleHeights, candleLows, candleLength):
         """ Высчитывает среднее тело 1 минутной свечи """
@@ -179,7 +182,7 @@ class Graph(Request):
                     candleBody = candleBody.quantize(Decimal("1.00"))
                     body += candleBody
                     amountVolume += volume
-                    directionImpulses[candleIndex].update({ 'isImpulse': True })
+                    directionImpulses[candleIndex].update({'isImpulse': True})
 
                 skipStep = count
                 inserter = {
@@ -187,7 +190,7 @@ class Graph(Request):
                     'count': count,
                     'impulseLength': body,
                     'impulseVolume': amountVolume,
-                    'isImpulse' : True,
+                    'isImpulse': True,
                     'time': str(time.hour) + ':' + str(time.min)
                 }
                 directionImpulses[index] = inserter
@@ -205,22 +208,29 @@ class Graph(Request):
             impulseVolume = directionImpulse.get('impulseVolume')
             if impulseVolume:
                 impulseVolumes.append(impulseVolume)
-        
-        averageImpulseLength = sum(map(lambda impulseLength: impulseLength, impulseLengths)) / len(impulseLengths)
+
+        averageImpulseLength = sum(
+            map(lambda impulseLength: impulseLength, impulseLengths)) / len(impulseLengths)
         averageImpulseLength = Decimal(averageImpulseLength)
         averageImpulseLength = averageImpulseLength.quantize(Decimal("1.00"))
         self.averageImpulseLengthGraph = averageImpulseLength
         print 'averageImpulseLength ', averageImpulseLength
 
-        averageImpulseVolume = sum(map(lambda impulseVolume: impulseVolume, impulseVolumes)) / len(impulseVolumes)
+        averageImpulseVolume = sum(
+            map(lambda impulseVolume: impulseVolume, impulseVolumes)) / len(impulseVolumes)
         averageImpulseVolume = Decimal(averageImpulseVolume)
         averageImpulseVolume = averageImpulseVolume.quantize(Decimal("1.00"))
         self.averageImpulseVolumeGraph = averageImpulseVolume
         print 'averageImpulseVolume ', averageImpulseVolume
 
-        isImpulse = directionImpulses[len(directionImpulses)-1].get('isImpulse')
+        isImpulse = directionImpulses[len(
+            directionImpulses)-1].get('isImpulse')
+        impulseDirection = directionImpulses[len(
+            directionImpulses)-1].get('direction')
         self.isImpulseGraph = isImpulse
         print 'isImpulse', isImpulse
+        if isImpulse:
+            print 'impulseDirection ', impulseDirection
 
         if isImpulse:
             impulseStartIndex = None
@@ -237,9 +247,9 @@ class Graph(Request):
                 direction = directionImpulses[index]
                 directionType = direction.get('direction')
 
-                candleOpen = candleOpens[candleIndex]
-                candleClose = candleCloses[candleIndex]
-                volume = candleVolumes[candleIndex]
+                candleOpen = candleOpens[index]
+                candleClose = candleCloses[index]
+                volume = candleVolumes[index]
                 candleBody = 0
                 if directionType == 'up':
                     candleBody = float(candleClose) - float(candleOpen)
@@ -250,12 +260,11 @@ class Graph(Request):
                 candleBody = candleBody.quantize(Decimal("1.00"))
                 impulseBody += candleBody
                 impulseAmountVolume += volume
-            
+
             self.impulseBodyGraph = impulseBody
             self.impulseAmountVolumeGraph = impulseAmountVolume
             print 'impulseBody ', impulseBody
             print 'impulseAmountVolume ', impulseAmountVolume
-
 
     def base(self, client, uuid, cb):
         requestDataSourceSize = self.fetchDataSourceSizeGraph(uuid)
@@ -271,7 +280,8 @@ class Graph(Request):
             requestCandleHeight = self.fetchDataSourceHeightGraph(uuid, index)
             client.send(requestCandleHeight)
             responseCandleHeight = client.recv()
-            candleHeight = self.parseDataSourceHeightGraph(responseCandleHeight)
+            candleHeight = self.parseDataSourceHeightGraph(
+                responseCandleHeight)
             candleHeights.append(candleHeight)
 
         candleLows = []
@@ -303,7 +313,8 @@ class Graph(Request):
             requestCandleVolume = self.fetchDataSourceVolumeGraph(uuid, index)
             client.send(requestCandleVolume)
             responseCandleVolume = client.recv()
-            candleVolume = self.parseDataSourceVolumeGraph(responseCandleVolume)
+            candleVolume = self.parseDataSourceVolumeGraph(
+                responseCandleVolume)
             candleVolumes.append(int(candleVolume))
 
         candleTimes = []
@@ -315,11 +326,13 @@ class Graph(Request):
             candleTimes.append(candleTime)
 
         self.clear()
-        self.maxHeightList(candleHeights)
-        self.minLowList(candleLows)
+        self.maxHeightList(candleHeights, candleCloses)
+        self.minLowList(candleLows, candleCloses)
         self.averageVolume(candleVolumes)
         self.averageCandleBody(candleHeights, candleLows, candleLength)
-        self.detectImpulse(candleHeights, candleLows, candleOpens, candleCloses, candleTimes, candleVolumes, candleLength)
+        self.detectImpulse(candleHeights, candleLows, candleOpens,
+                           candleCloses, candleTimes, candleVolumes, candleLength)
+        self.__TechnicalAnalyzeDetect()
 
         if cb:
             cb()
@@ -328,12 +341,11 @@ class Graph(Request):
         client.send(requestEmptyCallback)
         responseEmptyCallback = client.recv()
         isAwaitCallback = self.parseEmptyCallbackGraph(responseEmptyCallback)
-        
+
         if isAwaitCallback:
             self.base(client, uuid, cb)
         else:
             return isAwaitCallback
-
 
     def getData(self, cb=None):
         client = self.ctx.socket(zmq.REQ)
@@ -351,6 +363,37 @@ class Graph(Request):
         responseClose = client.recv()
         isClosed = self.parseDataSourceCloseSourceGraph(responseClose)
         print 'isClosed ', isClosed
+
+    def __TechnicalAnalyzeDetect(self):
+        horizontalLineLow = None
+
+        counter = 0
+        direction = None
+        for index in reversed(range(len(self.maxHeightsGraph))):
+            prevLow = float(self.maxHeightsGraph[index - 1])
+            currentLow = float(self.maxHeightsGraph[index])
+
+            localDirection = currentLow - prevLow
+            if localDirection > 0:
+                localDirection = 'up'
+            elif localDirection < 0:
+                localDirection = 'down'
+            else:
+                localDirection = 'equal'
+            print 'localDirection ', localDirection
+            if not direction:
+                direction = localDirection
+                if localDirection == 'equal':
+                    counter += 1
+            elif (direction == localDirection) or localDirection == 'equal':
+                counter += 1
+            else:
+                break
+
+        print 'maxHeightsGraph ', self.maxHeightsGraph
+        print 'counter ', counter
+        # print 'maxHeightsGraph ', self.maxHeightsGraph
+
 
 if __name__ == '__main__':
     Graph().getData()

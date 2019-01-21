@@ -19,7 +19,7 @@ class Trader(Graph, AllTrades, Connector):
             GraphData = Thread(target=self.getData, args=(self.graphCallback,))
             GraphData.daemon = True
             GraphData.start()
-            LevelII = Thread(target=self.subscribeQuoteLevelII, args=(self.levelIICallback,))
+            LevelII = Thread(target=self.subscribeQuoteLevelIIWithAllTrades, args=(self.levelIICallback,))
             LevelII.daemon = True
             LevelII.start()
             while True: time.sleep(100)
@@ -36,10 +36,6 @@ class Trader(Graph, AllTrades, Connector):
         sys.stdout = sys.__stdout__
 
     def allTradesCallback(self, trade):
-        if trade.flags == 1:
-            self.updateOfferSide(trade)
-        else:
-            self.updateBidSide(trade)
         # self.enableLogging()
         # print 'allTradesCallback', trade
         # self.disableLogging()
