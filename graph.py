@@ -34,13 +34,13 @@ class Graph(Request):
             isLeftLess = True
             isRightLess = True
 
-            for leftIndex in range(mainHighIndex-step, mainHighIndex):
+            for leftIndex in range(mainHighIndex-step, mainHighIndex-1):
                 leftCandle = float(candleHeights[leftIndex])
-                if leftCandle > mainHeight:
+                if leftCandle >= mainHeight:
                     isLeftLess = False
-            for rightIndex in range(mainHighIndex, mainHighIndex+step):
+            for rightIndex in range(mainHighIndex + 1, mainHighIndex+step):
                 rightCandle = float(candleHeights[rightIndex])
-                if rightCandle > mainHeight:
+                if rightCandle >= mainHeight:
                     isRightLess = False
 
             if isLeftLess and isRightLess:
@@ -68,28 +68,40 @@ class Graph(Request):
         candleLength = len(candleLows)
         step = 3
 
-        for mainLowIndex in range(step, candleLength-step):
+        for mainLowIndex in range(step, candleLength - step):
             mainLow = float(candleLows[mainLowIndex])
             isLeftMore = True
             isRightMore = True
+            isLeftEqual = False
+            isRightEqual = False
 
             for leftIndex in range(mainLowIndex-step, mainLowIndex):
                 leftCandle = float(candleLows[leftIndex])
                 if leftCandle < mainLow:
                     isLeftMore = False
+                elif leftCandle == mainLow:
+                    isLeftEqual = True
 
-            for rightIndex in range(mainLowIndex, mainLowIndex+step):
+            for rightIndex in range(mainLowIndex+1, mainLowIndex+step):
                 rightCandle = float(candleLows[rightIndex])
                 if rightCandle < mainLow:
                     isRightMore = False
+                elif rightCandle == mainLow:
+                    isRightEqual = True
 
-            if isLeftMore and isRightMore:
+            if isLeftMore and isRightMore and isLeftEqual and not isRightEqual:
+                minLows.append({'price': mainLow, 'index': mainLowIndex})
+                continue
+
+            if isLeftMore and isRightMore and not isLeftEqual and not isRightEqual:
                 minLows.append(mainLow)
+                continue
 
         self.minLowsGraph = minLows
-        lastPrice = float(candleCloses[len(candleCloses)-1])
-        nearestLow = list(filter(lambda x: float(x) <= lastPrice, minLows))
-        print 'nearestLow ', nearestLow[len(nearestLow)-1]
+        # lastPrice = float(candleCloses[len(candleCloses)-1])
+        # nearestLow = list(filter(lambda x: float(x) <= lastPrice, minLows))
+        # print 'len(nearestLow)', len(nearestLow)
+        # print 'nearestLow ', nearestLow[len(nearestLow)-1]
 
     def averageVolume(self, candleVolumes):
         averageQty = sum(map(lambda qty: qty, candleVolumes)
@@ -343,6 +355,7 @@ class Graph(Request):
         isAwaitCallback = self.parseEmptyCallbackGraph(responseEmptyCallback)
 
         if isAwaitCallback:
+            time.sleep(60)
             self.base(client, uuid, cb)
         else:
             return isAwaitCallback
@@ -366,9 +379,10 @@ class Graph(Request):
 
     def __findMinValue(self, priceList):
         lowPrice = 0
-        for price in priceList:
+        for priceObject in priceList:
+            price = priceObject.get('price')
             if lowPrice == 0:
-                lowPrice = price 
+                lowPrice = price
             if price > lowPrice:
                 continue
             else:
@@ -378,9 +392,10 @@ class Graph(Request):
 
     def __findMaxValue(self, priceList):
         highPrice = 0
-        for price in priceList:
+        for priceObject in priceList:
+            price = priceObject.get('price')
             if highPrice == 0:
-                highPrice = price 
+                highPrice = price
             if price < highPrice:
                 continue
             else:
@@ -393,89 +408,108 @@ class Graph(Request):
         lowLineType = None
 
         lastPrice = float(candleCloses[len(candleCloses)-1])
-        lows = list(filter(lambda x: float(x) <= lastPrice, self.minLowsGraph))
-        highs = list(filter(lambda x: float(x) >= lastPrice, self.maxHeightsGraph))
 
-        availableLows = list()
-        for index in reversed(range(len(lows))):
-            price = float(lows[index])
-            minPrice = price if len(availableLows) == 0 else self.__findMinValue(availableLows)
-            if minPrice >= price:
-                availableLows.append(float(price))
-        availableLows.reverse()
+        # lows = list()
+        # for index in range(len(self.minLowsGraph)):
+        #     price = float(self.minLowsGraph[index])
+        #     if price <= lastPrice:
+        #         lows.append({'price': price, 'index': index})
 
-        availableHighs = list()
-        for index in reversed(range(len(highs))):
-            price = float(highs[index])
-            maxPrice = price if len(availableHighs) == 0 else self.__findMaxValue(availableHighs)
-            if maxPrice <= price:
-                availableHighs.append(float(price))
-        availableHighs.reverse()
+        # highs = list()
+        # for index in range(len(self.maxHeightsGraph)):
+        #     price = float(self.maxHeightsGraph[index])
+        #     if price >= lastPrice:
+        #         highs.append({'price': price, 'index': index})
 
-        counterHigh = 0
-        direction = None
-        for index in reversed(range(len(availableHighs))):
-            prevLow = float(availableHighs[index - 1])
-            currentLow = float(availableHighs[index])
+        # availableLows = list()
+        # for index in reversed(range(len(lows))):
+        #     low = lows[index]
+        #     price = low.get('price')
+        #     _index = low.get('index')
+        #     minPrice = price if len(
+        #         availableLows) == 0 else self.__findMinValue(availableLows)
+        #     if minPrice >= price:
+        #         availableLows.append({'price': price, 'index': _index})
+        # availableLows.reverse()
 
-            localDirection = currentLow - prevLow
-            if localDirection > 0:
-                localDirection = 'up'
-            elif localDirection < 0:
-                localDirection = 'down'
-            else:
-                localDirection = 'equal'
+        # availableHighs = list()
+        # for index in reversed(range(len(highs))):
+        #     high = highs[index]
+        #     price = high.get('price')
+        #     _index = high.get('index')
+        #     maxPrice = price if len(
+        #         availableHighs) == 0 else self.__findMaxValue(availableHighs)
+        #     if maxPrice <= price:
+        #         availableHighs.append({'price': price, 'index': _index })
+        # availableHighs.reverse()
 
-            if not direction:
-                direction = localDirection
-                if localDirection == 'equal':
-                    counterHigh += 1
-            elif (direction == localDirection) or localDirection == 'equal':
-                counterHigh += 1
-            else:
-                break
+        # print 'availableHighs ', availableHighs
+        # print 'availableLows ', availableLows
 
-        if counterHigh:
-            if direction == 'equal':
-                highLineType = 'horizontal'
-            elif direction == 'up':
-                highLineType = 'increase'
-            else:
-                highLineType = 'decrease'
+        # counterHigh = 0
+        # direction = None
+        # for index in reversed(range(len(self.maxHeightsGraph))):
+        #     prevLow = float(self.maxHeightsGraph[index - 1])
+        #     currentLow = float(self.maxHeightsGraph[index])
 
-        counterLow = 0
-        direction = None
-        for index in reversed(range(len(availableLows))):
-            prevLow = float(availableLows[index - 1])
-            currentLow = float(availableLows[index])
+        #     localDirection = currentLow - prevLow
+        #     if localDirection <= 0.1 and localDirection >= -0.1:
+        #         localDirection = 'equal'
+        #     elif localDirection > 0:
+        #         localDirection = 'up'
+        #     elif localDirection < 0:
+        #         localDirection = 'down'
 
-            localDirection = currentLow - prevLow
-            if localDirection > 0:
-                localDirection = 'down'
-            elif localDirection < 0:
-                localDirection = 'up'
-            else:
-                localDirection = 'equal'
+        #     if not direction:
+        #         direction = localDirection
+        #         counterHigh += 1
+        #     elif direction == localDirection:
+        #         counterHigh += 1
+        #     else:
+        #         break
 
-            if not direction:
-                direction = localDirection
-                if localDirection == 'equal':
-                    counterLow += 1
-            elif (direction == localDirection) or localDirection == 'equal':
-                counterLow += 1
-            else:
-                break
+        # if counterHigh:
+        #     if direction == 'equal':
+        #         highLineType = 'horizontal'
+        #     elif direction == 'up':
+        #         highLineType = 'increase'
+        #     else:
+        #         highLineType = 'decrease'
 
-        if counterLow:
-            if direction == 'equal':
-                lowLineType = 'horizontal'
-            elif direction == 'down':
-                lowLineType = 'increase'
-            else:
-                lowLineType = 'decrease'
+        # counterLow = 0
+        # direction = None
+        # for index in reversed(range(len(self.minLowsGraph))):
+        #     prevLow = float(self.minLowsGraph[index - 1])
+        #     currentLow = float(self.minLowsGraph[index])
 
-        print 'highLineType ', highLineType, ' - ', counterHigh
-        print 'lowLineType ', lowLineType, ' - ', counterLow
+        #     localDirection = currentLow - prevLow
+        #     if localDirection <= 0.1 and localDirection >= -0.1:
+        #         localDirection = 'equal'
+        #     elif localDirection > 0:
+        #         localDirection = 'down'
+        #     elif localDirection < 0:
+        #         localDirection = 'up'
+
+        #     if not direction:
+        #         direction = localDirection
+        #         counterLow += 1
+        #     elif direction == localDirection:
+        #         counterLow += 1
+        #     else:
+        #         break
+
+        # if counterLow:
+        #     if direction == 'equal':
+        #         lowLineType = 'horizontal'
+        #     elif direction == 'down':
+        #         lowLineType = 'increase'
+        #     else:
+        #         lowLineType = 'decrease'
+
+        print 'availableHighs ', self.maxHeightsGraph
+        print 'availableLows ', self.minLowsGraph
+        # print 'highLineType ', highLineType, ' - ', counterHigh
+        # print 'lowLineType ', lowLineType, ' - ', counterLow
 
 
 if __name__ == '__main__':
