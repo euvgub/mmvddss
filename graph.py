@@ -371,7 +371,7 @@ class Graph(Request):
         isAwaitCallback = self.parseEmptyCallbackGraph(responseEmptyCallback)
 
         if isAwaitCallback:
-            time.sleep(60)
+            # time.sleep(60)
             self.base(client, uuid, cb)
         else:
             return isAwaitCallback
@@ -422,21 +422,29 @@ class Graph(Request):
     def __drawLine(self, x1=0, y1=0, x2=0, y2=0):
         dy = y2 - y1
         dx = x2 - x1
+        dx = dx if dx != 0 else 1
         k = float(dy)/float(dx)
-        return math.degrees(math.atan(k))
+        return k
+
+    def __findPriceByRadian(self, x1=0, y1=0, x2=0, k=0):
+        dx = x2 - x1
+        dk = float(dx) * float(k)
+        y2 = dk + float(y1)
+        return float(math.floor(y2) / 100)
 
     def __TechnicalAnalyzeDetect(self, candleCloses):
         highLineType = None
         lowLineType = None
 
         lastPrice = float(candleCloses[len(candleCloses)-1])
+        lastIndex = len(candleCloses) - 1
 
         lows = list()
         for index in range(len(self.minLowsGraph)):
             low = self.minLowsGraph[index]
             price = low.get('price')
             lowIndex = low.get('index')
-            if price <= lastPrice:
+            if price - 0.02 <= lastPrice:
                 lows.append({'price': price, 'index': lowIndex})
 
         highs = list()
@@ -444,7 +452,7 @@ class Graph(Request):
             high = self.maxHeightsGraph[index]
             price = high.get('price')
             highIndex = high.get('index')
-            if price >= lastPrice:
+            if price + 0.02 >= lastPrice:
                 highs.append({'price': price, 'index': highIndex})
 
         availableHighs = list()
@@ -454,7 +462,7 @@ class Graph(Request):
             highIndex = high.get('index')
             maxPrice = price if len(
                 availableHighs) == 0 else self.__findMaxValue(availableHighs)
-            if maxPrice <= highPrice + 0.1:
+            if maxPrice <= highPrice + 0.05:
                 availableHighs.append({'price': highPrice, 'index': highIndex})
         availableHighs.reverse()
 
@@ -465,7 +473,7 @@ class Graph(Request):
             lowIndex = low.get('index')
             minPrice = lowPrice if len(
                 availableLows) == 0 else self.__findMinValue(availableLows)
-            if minPrice >= lowPrice - 0.1:
+            if minPrice >= lowPrice - 0.05:
                 availableLows.append({'price': lowPrice, 'index': lowIndex})
         availableLows.reverse()
 
@@ -483,8 +491,14 @@ class Graph(Request):
             currentHighIndex = currentHigh.get('index')
 
             localDirection = currentHighPrice - prevHighPrice
-            if localDirection <= 0.1 and localDirection >= -0.1:
-                localDirection = 'equal'
+            if localDirection <= 0.05 and localDirection >= -0.05:
+                if direction and direction != 'equal':
+                    if localDirection > 0:
+                        localDirection = 'up'
+                    elif localDirection < 0:
+                        localDirection = 'down'
+                else:
+                    localDirection = 'equal'
             elif localDirection > 0:
                 localDirection = 'up'
             elif localDirection < 0:
@@ -498,13 +512,33 @@ class Graph(Request):
                 counterHigh.append(
                     {'price': currentHighPrice, 'index': currentHighIndex})
             else:
+                if len(counterHigh) == 1:
+                    counterHigh.append(
+                        {'price': currentHighPrice, 'index': currentHighIndex})
                 break
 
         if len(counterHigh):
             counterHigh.reverse()
-            corner = self.__drawLine(counterHigh[0].get('index'), int(counterHigh[0].get('price') * 100), counterHigh[len(
-                counterHigh)-1].get('index'), int(counterHigh[len(counterHigh)-1].get('price') * 100))
-            print 'corner High ', corner
+            print '---------'
+            for index in range(len(counterHigh) - 1):
+                highA = counterHigh[index]
+                highB = counterHigh[index + 1]
+
+                highAx = highA.get('index')
+                highAy = highA.get('price') * 100
+
+                highBx = highB.get('index')
+                highBy = highB.get('price') * 100
+                corner = self.__drawLine(highAx, highAy, highBx, highBy)
+
+                expectationPrice = self.__findPriceByRadian(
+                    highAx, highAy, lastIndex, corner)
+                if expectationPrice >= lastPrice:
+                    print 'need price High', expectationPrice
+
+            # print 'corner position by high', self.__drawLine(counterHigh[0].get(
+            #     'index'), counterHigh[0].get('price') * 100, lastIndex, lastPrice * 100)
+            # counterHigh.reverse()
             if direction == 'equal':
                 highLineType = 'horizontal'
             elif direction == 'up':
@@ -523,8 +557,14 @@ class Graph(Request):
             currentLowIndex = currentLow.get('index')
 
             localDirection = currentLowPrice - prevLowPrice
-            if localDirection <= 0.1 and localDirection >= -0.1:
-                localDirection = 'equal'
+            if localDirection <= 0.05 and localDirection >= -0.05:
+                if direction and direction != 'equal':
+                    if localDirection > 0:
+                        localDirection = 'down'
+                    elif localDirection < 0:
+                        localDirection = 'up'
+                else:
+                    localDirection = 'equal'
             elif localDirection > 0:
                 localDirection = 'down'
             elif localDirection < 0:
@@ -538,13 +578,34 @@ class Graph(Request):
                 counterLow.append(
                     {'price': currentLowPrice, 'index': currentLowIndex})
             else:
+                if len(counterLow) != 0:
+                    counterLow.append(
+                        {'price': currentLowPrice, 'index': currentLowIndex})
                 break
 
         if len(counterLow):
             counterLow.reverse()
-            corner = self.__drawLine(counterLow[0].get('index'), int(counterLow[0].get('price') * 100), counterLow[len(
-                counterLow)-1].get('index'), int(counterLow[len(counterLow)-1].get('price') * 100))
-            print 'corner low ', corner
+            print '---------'
+            for index in range(len(counterLow) - 1):
+                lowA = counterLow[index]
+                lowB = counterLow[index + 1]
+
+                lowAx = lowA.get('index')
+                lowAy = lowA.get('price') * 100
+
+                lowBx = lowB.get('index')
+                lowBy = lowB.get('price') * 100
+                corner = self.__drawLine(lowAx, lowAy, lowBx, lowBy)
+
+                expectationPrice = self.__findPriceByRadian(
+                    lowAx, lowAy, lastIndex, corner)
+                if expectationPrice <= lastPrice:
+                    print 'need price Low', expectationPrice
+
+            # print 'corner position by low', self.__drawLine(counterLow[0].get(
+            #     'index'), counterLow[0].get('price') * 100, lastIndex, lastPrice * 100)
+
+            # counterLow.reverse()
             if direction == 'equal':
                 lowLineType = 'horizontal'
             elif direction == 'down':
@@ -552,6 +613,7 @@ class Graph(Request):
             else:
                 lowLineType = 'decrease'
 
+        print '---------'
         # print 'availableHighs ', self.maxHeightsGraph
         # print 'availableLows ', self.minLowsGraph
         print 'highLineType ', highLineType, ' - ', counterHigh
